@@ -2,129 +2,98 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Endless Animated Line Weave</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <title>Growing Spline Line Animation</title>
     <style>
-        body { margin: 0; overflow: hidden; background: black; }
-        canvas { display: block; }
+        body { margin: 0; overflow: hidden; background: black; touch-action: none; }
+        canvas { display: block; width: 100vw; height: 100vh; }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
     <script>
-        function generatePoints(width, height, numPoints = 100) {
-            return Array.from({ length: numPoints }, () => [
-                Math.random() * width,
-                Math.random() * height,
-                Math.random() * Math.PI * 2 // Introduce phase for smooth oscillation
-            ]).sort((a, b) => a[0] - b[0]);
-        }
-
-        function offsetLine(points, offsetAmount) {
-            return points.map(([x, y], index, arr) => {
-                if (index === 0 || index === arr.length - 1) return [x, y];
-                const prev = arr[index - 1];
-                const next = arr[index + 1];
-                const dx = next[0] - prev[0];
-                const dy = next[1] - prev[1];
-                const len = Math.sqrt(dx * dx + dy * dy);
-                return [x + (offsetAmount * dy) / len, y - (offsetAmount * dx) / len];
-            });
-        }
-
-        function interpolatePoints(start, end, divisions = 300) {
-            return Array.from({ length: divisions }, (_, i) => {
-                const t = i / (divisions - 1);
-                return [
-                    start[0] * (1 - t) + end[0] * t,
-                    start[1] * (1 - t) + end[1] * t
-                ];
-            });
-        }
-
-        function weaveLines(line1, line2) {
-            let woven = [];
-            for (let i = 0; i < line1.length; i++) {
-                woven.push(i % 2 === 0 ? line1[i] : line2[i]);
-            }
-            return woven;
-        }
-
         const canvas = document.getElementById("canvas");
         const ctx = canvas.getContext("2d");
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-
-        let basePoints1 = generatePoints(canvas.width, canvas.height);
-        let basePoints2 = generatePoints(canvas.width, canvas.height);
-        let basePoints3 = generatePoints(canvas.width, canvas.height);
-        let wovenPaths = updatePaths();
-        let index = 0;
-        let time = 0;
-
-        function updatePaths() {
-            let offsetSets = [
-                [offsetLine(basePoints1, 20), offsetLine(basePoints1, -20)],
-                [offsetLine(basePoints2, 40), offsetLine(basePoints2, -40)],
-                [offsetLine(basePoints3, 60), offsetLine(basePoints3, -60)]
-            ];
-            return offsetSets.map(([offset1, offset2]) => {
-                let fineLine1 = [];
-                let fineLine2 = [];
-                for (let i = 0; i < offset1.length - 1; i++) {
-                    fineLine1.push(...interpolatePoints(offset1[i], offset1[i + 1]));
-                    fineLine2.push(...interpolatePoints(offset2[i], offset2[i + 1]));
-                }
-                return weaveLines(fineLine1, fineLine2);
-            });
+        
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
         }
-
-        function animate() {
+        
+        resizeCanvas();
+        
+        let points = [];
+        const numPoints = 25;
+        let angle = Math.random() * Math.PI * 2;
+        let speed = 10;
+        let hueOffset = 0;
+        
+        for (let i = 0; i < numPoints; i++) {
+            points.push({ x: canvas.width / 2, y: canvas.height / 2 });
+        }
+        
+        function update() {
+            let lastPoint = points[points.length - 1];
+            let angleOffset = (Math.random() - 0.5) * 0.3;
+            angle += angleOffset;
+            let newX = lastPoint.x + Math.cos(angle) * speed;
+            let newY = lastPoint.y + Math.sin(angle) * speed;
+            
+            if (newX < 0 || newX > canvas.width) angle = Math.PI - angle;
+            if (newY < 0 || newY > canvas.height) angle = -angle;
+            
+            points.push({ x: newX, y: newY });
+            if (points.length > numPoints) points.shift();
+            
+            animateControlPoints();
+            hueOffset += 2;
+        }
+        
+        function animateControlPoints() {
+            for (let i = 0; i < points.length; i++) {
+                points[i].x += Math.sin(i * 0.3 + performance.now() * 0.002) * 2;
+                points[i].y += Math.cos(i * 0.3 + performance.now() * 0.002) * 2;
+            }
+        }
+        
+        function drawSpline() {
+            if (points.length < 2) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const blendModes = ["multiply", "screen", "overlay"];
-            const colorSets = [
-                "rgba(255, 94, 0, 0.9)",
-                "rgba(0, 255, 214, 0.9)",
-                "rgba(170, 0, 255, 0.9)"
-            ];
-            ctx.filter = "saturate(2.0)";
-            wovenPaths.forEach((path, pathIndex) => {
-                ctx.globalCompositeOperation = blendModes[pathIndex % blendModes.length];
-                ctx.strokeStyle = colorSets[pathIndex];
-                ctx.lineWidth = 2;
+            
+            ctx.lineWidth = 10;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            
+            for (let i = 1; i < points.length - 1; i++) {
+                let midX = (points[i].x + points[i + 1].x) / 2;
+                let midY = (points[i].y + points[i + 1].y) / 2;
                 ctx.beginPath();
-                ctx.moveTo(path[0][0], path[0][1]);
-                for (let i = 0; i < index; i++) {
-                    if (path[i]) ctx.lineTo(path[i][0], path[i][1]);
-                }
+                ctx.strokeStyle = `hsl(${(hueOffset + i * 10) % 360}, 100%, 50%)`;
+                ctx.moveTo(points[i - 1].x, points[i - 1].y);
+                ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
                 ctx.stroke();
-            });
-            ctx.globalCompositeOperation = "source-over";
-            ctx.filter = "none";
-            index += 10;
+            }
             
-            // Smooth oscillation for tree-like sway effect
-            time += 0.01;
-            basePoints1 = basePoints1.map(([x, y, phase]) => [
-                x + Math.sin(time + phase) * 1, 
-                y + Math.cos(time + phase) * 1,
-                phase
-            ]);
-            basePoints2 = basePoints2.map(([x, y, phase]) => [
-                x + Math.sin(time + phase) * 1.5, 
-                y + Math.cos(time + phase) * 1.5,
-                phase
-            ]);
-            basePoints3 = basePoints3.map(([x, y, phase]) => [
-                x + Math.sin(time + phase) * 2, 
-                y + Math.cos(time + phase) * 2,
-                phase
-            ]);
-            wovenPaths = updatePaths();
-            
+            drawControlPoints();
+        }
+        
+        function drawControlPoints() {
+            ctx.fillStyle = "white";
+            for (let i = 0; i < points.length; i++) {
+                ctx.beginPath();
+                ctx.arc(points[i].x, points[i].y, 10, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        function animate() {
+            update();
+            drawSpline();
             requestAnimationFrame(animate);
         }
-
+        
+        window.addEventListener("resize", resizeCanvas);
+        
         animate();
     </script>
 </body>
