@@ -3,34 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Optimized Animated Line Weave</title>
+    <title>Endless Animated Line Weave</title>
     <style>
         body { margin: 0; overflow: hidden; background: black; }
-        canvas { display: block; touch-action: manipulation; }
+        canvas { display: block; }
     </style>
 </head>
 <body>
     <canvas id="canvas"></canvas>
     <script>
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
-        let animationActive = true;
-        let time = 0;
-
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        }
-        
-        function generatePoints(width, height, numPoints) {
+        function generatePoints(width, height, numPoints = 100) {
             return Array.from({ length: numPoints }, () => [
                 Math.random() * width,
                 Math.random() * height,
-                Math.random() * Math.PI * 2
+                Math.random() * Math.PI * 2 // Introduce phase for smooth oscillation
             ]).sort((a, b) => a[0] - b[0]);
         }
 
-        function interpolatePoints(start, end, divisions) {
+        function offsetLine(points, offsetAmount) {
+            return points.map(([x, y], index, arr) => {
+                if (index === 0 || index === arr.length - 1) return [x, y];
+                const prev = arr[index - 1];
+                const next = arr[index + 1];
+                const dx = next[0] - prev[0];
+                const dy = next[1] - prev[1];
+                const len = Math.sqrt(dx * dx + dy * dy);
+                return [x + (offsetAmount * dy) / len, y - (offsetAmount * dx) / len];
+            });
+        }
+
+        function interpolatePoints(start, end, divisions = 100) {
             return Array.from({ length: divisions }, (_, i) => {
                 const t = i / (divisions - 1);
                 return [
@@ -48,43 +50,60 @@
             return woven;
         }
 
-        function updateDensity() {
-            return window.innerWidth < 768 ? 30 : 60;
-        }
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-        function updateDivisions() {
-            return window.innerWidth < 768 ? 500 : 1000;
+        let basePoints1 = generatePoints(canvas.width, canvas.height);
+        let basePoints2 = generatePoints(canvas.width, canvas.height);
+        let basePoints3 = generatePoints(canvas.width, canvas.height);
+        let wovenPaths = updatePaths();
+        let index = 0;
+        let time = 0;
+
+        function updatePaths() {
+            let offsetSets = [
+                [offsetLine(basePoints1, 20), offsetLine(basePoints1, -20)],
+                [offsetLine(basePoints2, 40), offsetLine(basePoints2, -40)],
+                [offsetLine(basePoints3, 60), offsetLine(basePoints3, -60)]
+            ];
+            return offsetSets.map(([offset1, offset2]) => {
+                let fineLine1 = [];
+                let fineLine2 = [];
+                for (let i = 0; i < offset1.length - 1; i++) {
+                    fineLine1.push(...interpolatePoints(offset1[i], offset1[i + 1]));
+                    fineLine2.push(...interpolatePoints(offset2[i], offset2[i + 1]));
+                }
+                return weaveLines(fineLine1, fineLine2);
+            });
         }
 
         function animate() {
-            if (!animationActive) return;
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-            const colorSets = ["rgba(255, 94, 0, 0.9)", "rgba(0, 255, 214, 0.9)", "rgba(170, 0, 255, 0.9)"];
-            ctx.lineWidth = 2;
+            const blendModes = ["multiply", "screen", "overlay"];
+            const colorSets = [
+                "rgba(255, 94, 0, 0.9)",
+                "rgba(0, 255, 214, 0.9)",
+                "rgba(170, 0, 255, 0.9)"
+            ];
             ctx.filter = "saturate(2.0)";
-
-            let interpolated1 = basePoints1.flatMap((_, i, arr) =>
-                i < arr.length - 1 ? interpolatePoints(arr[i], arr[i + 1], updateDivisions()) : []
-            );
-            let interpolated2 = basePoints2.flatMap((_, i, arr) =>
-                i < arr.length - 1 ? interpolatePoints(arr[i], arr[i + 1], updateDivisions()) : []
-            );
-            let wovenLines = weaveLines(interpolated1, interpolated2);
-
-            [basePoints1, basePoints2, basePoints3].forEach((points, index) => {
-                ctx.strokeStyle = colorSets[index];
+            wovenPaths.forEach((path, pathIndex) => {
+                ctx.globalCompositeOperation = blendModes[pathIndex % blendModes.length];
+                ctx.strokeStyle = colorSets[pathIndex];
+                ctx.lineWidth = 2;
                 ctx.beginPath();
-                ctx.moveTo(points[0][0], points[0][1]);
-                points.forEach(([x, y]) => ctx.lineTo(x, y));
+                ctx.moveTo(path[0][0], path[0][1]);
+                for (let i = 0; i < index; i++) {
+                    if (path[i]) ctx.lineTo(path[i][0], path[i][1]);
+                }
                 ctx.stroke();
             });
-
-            ctx.strokeStyle = "white";
-            ctx.beginPath();
-            ctx.moveTo(wovenLines[0][0], wovenLines[0][1]);
-            wovenLines.forEach(([x, y]) => ctx.lineTo(x, y));
-            ctx.stroke();
-
+            ctx.globalCompositeOperation = "source-over";
+            ctx.filter = "none";
+            index += 10;
+            
+            // Smooth oscillation for tree-like sway effect
             time += 0.01;
             basePoints1 = basePoints1.map(([x, y, phase]) => [
                 x + Math.sin(time + phase) * 1, 
@@ -101,21 +120,11 @@
                 y + Math.cos(time + phase) * 2,
                 phase
             ]);
+            wovenPaths = updatePaths();
+            
             requestAnimationFrame(animate);
         }
 
-        function toggleAnimation() {
-            animationActive = !animationActive;
-            if (animationActive) animate();
-        }
-
-        resizeCanvas();
-        window.addEventListener("resize", resizeCanvas);
-        canvas.addEventListener("click", toggleAnimation);
-
-        let basePoints1 = generatePoints(canvas.width, canvas.height, updateDensity());
-        let basePoints2 = generatePoints(canvas.width, canvas.height, updateDensity());
-        let basePoints3 = generatePoints(canvas.width, canvas.height, updateDensity());
         animate();
     </script>
 </body>
