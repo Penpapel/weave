@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1a22">
+<link rel="icon" href="data:,">
+<title>Join the spatial rig</title>
+<meta name="description" content="Your phone becomes one speaker in a spatial sound rig. No app to install.">
+<meta property="og:title" content="Join the spatial rig">
+<meta property="og:description" content="Tap to turn your phone into one speaker of a spatial sound rig. No app needed.">
+<meta property="og:type" content="website">
+<!-- Replace the address below with where this folder is published, then keep og-image.png next to this file. -->
+<meta property="og:image" content="https://YOUR-USER.github.io/YOUR-REPO/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root { --ground:#0f1a22; --panel:#15242e; --line:#243b49; --ink:#e8f1f5; --dim:#8aa3b1; --signal:#ff7b54; --wave:#8fd8ff; --ok:#b5e36e; --bad:#ff4458; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--ground); color: var(--ink);
+    font: 15px/1.45 ui-monospace, "IBM Plex Mono", Menlo, Consolas, monospace; }
+  body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) 20px env(safe-area-inset-bottom); transition: background .15s; }
+  body.flash { background: var(--signal); color: #0f1a22; }
+  [hidden] { display: none !important; }
+  h1 { font-size: 13px; letter-spacing: .22em; text-transform: uppercase; font-weight: 600; margin: 22px 0 4px; color: var(--dim); }
+  body.flash h1 { color: #0f1a22; }
+  #name { font-size: 40px; line-height: 1.1; margin: 4px 0 18px; font-weight: 600; }
+  .row { display: flex; justify-content: space-between; border-top: 1px solid var(--line); padding: 10px 0; }
+  .row span:first-child { color: var(--dim); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--dim); margin-right: 8px; }
+  .dot.on { background: var(--ok); } .dot.bad { background: var(--bad); }
+  #meterWrap { height: 10px; background: var(--panel); border-radius: 5px; overflow: hidden; margin: 18px 0 6px; }
+  #meter { height: 100%; width: 0; background: var(--wave); transition: width .05s linear; }
+  .note { color: var(--dim); font-size: 13px; margin: 14px 0; }
+  #intro { display: flex; flex-direction: column; flex: 1; justify-content: center; }
+  #intro p { color: var(--dim); }
+  .code { font-size: 34px; letter-spacing: .3em; font-weight: 600; margin: 4px 0 12px; }
+  button#join { width: 100%; padding: 22px; font: inherit; font-size: 18px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: #0f1a22; background: var(--signal); border: 0; border-radius: 8px; margin: 10px 0; }
+  #muted { color: var(--bad); font-weight: 600; margin: 6px 0; }
+  #err { color: var(--bad); margin: 10px 0; }
+  .install { margin-top: auto; padding: 16px 0 18px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13px; }
+  .install a { color: var(--wave); }
+  body.flash .install, body.flash .row span:first-child, body.flash .note { color: #0f1a22; }
+</style>
+</head>
+<body>
+<audio id="sil" playsinline></audio>
+
+<section id="intro">
+  <h1>Spatial rig</h1>
+  <div class="code" id="codeShow">----</div>
+  <p>Your phone becomes one speaker in the rig. Turn the volume up to about 70%, and keep this page open and in front.</p>
+  <div id="err" hidden></div>
+  <button id="join">Join the rig</button>
+</section>
+
+<section id="live" hidden>
+  <h1>You are a speaker</h1>
+  <div id="name">...</div>
+  <div id="muted" hidden>MUTED BY THE LEAD</div>
+  <div id="meterWrap"><div id="meter"></div></div>
+  <div class="row"><span>Connection</span><span><i class="dot" id="dot"></i><b id="conn">connecting</b></span></div>
+  <div class="row"><span>Clock</span><span id="sync">syncing</span></div>
+  <div class="row"><span>Played / late</span><span id="counts">0 / 0</span></div>
+  <div class="row"><span>Delay trim</span><span id="trim">0 ms</span></div>
+  <p class="note">If the sound stops, tap anywhere. Keep this page in front.</p>
+</section>
+
+<div class="install">Like what you hear? Play it yourself: <a id="install" href="#tbd">Get Dactyl</a></div>
+
+<script src="vendor/peerjs.min.js"></script>
+<script src="rig.js"></script>
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const code = (new URLSearchParams(location.search).get('r') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  $('#install').href = SRP.INSTALL_URL;
+  $('#codeShow').textContent = code || '----';
+
+  let myId = null;
+  try { myId = localStorage.getItem('srp.id'); } catch (_) {}
+  if (!myId) {
+    myId = Math.random().toString(36).slice(2, 10);
+    try { localStorage.setItem('srp.id', myId); } catch (_) {}
+  }
+
+  const S = {
+    id: myId, clock: new SRP.Clock(), focus: 2.5, layout: [],
+    me: { name: '...', pos: [0, 0], delay: 0, level: 1, mute: false, online: true }
+  };
+  const engine = SRP.createEngine(S);
+  let peer = null, conn = null, pingTimer = null, pingN = 0, statTimer = null, retryTimer = null, joined = false;
+
+  function setConn(txt, cls) { $('#conn').textContent = txt; $('#dot').className = 'dot ' + (cls || ''); }
+  function showMe() {
+    $('#name').textContent = S.me.name;
+    $('#trim').textContent = Math.round(S.me.delay) + ' ms';
+    $('#muted').hidden = !S.me.mute;
+  }
+
+  /* ---------- link to the lead ---------- */
+  function send(o) { if (conn && conn.open) conn.send(o); }
+  function ping() {
+    send({ type: 'ping', c: performance.now() });
+    pingN++;
+    pingTimer = setTimeout(ping, pingN < 12 ? 120 : pingN < 40 ? 1000 : 4000);
+  }
+  function teardown() {
+    clearTimeout(pingTimer); clearInterval(statTimer);
+    try { if (conn) conn.close(); } catch (_) {}
+    try { if (peer) peer.destroy(); } catch (_) {}
+    conn = null; peer = null;
+  }
+  function retry(ms) {
+    if (retryTimer) return;
+    retryTimer = setTimeout(() => { retryTimer = null; connect(); }, ms);
+  }
+  function connect() {
+    teardown();
+    setConn('connecting', '');
+    peer = new Peer(undefined, SRP.peerOptions());
+    peer.on('open', () => {
+      conn = peer.connect(SRP.ROOM_PREFIX + code, { reliable: true, serialization: 'json' });
+      conn.on('open', () => {
+        S.clock.reset(); pingN = 0;
+        send({ type: 'hello', id: myId });
+        ping();
+        statTimer = setInterval(() => {
+          const st = engine.stats();
+          send({ type: 'stats', rtt: S.clock.rtt, late: st.late, played: st.played, lat: st.lat });
+        }, 2000);
+        setConn('connected', 'on');
+      });
+      conn.on('data', onData);
+      conn.on('close', () => { setConn('reconnecting', 'bad'); retry(1500); });
+      conn.on('error', () => { setConn('reconnecting', 'bad'); retry(2000); });
+    });
+    peer.on('error', e => {
+      if (e.type === 'peer-unavailable') { setConn('room not found', 'bad'); showError('This room is not open. Ask the lead to start the rig and send the link again.'); }
+      else setConn('network problem', 'bad');
+      retry(4000);
+    });
+    peer.on('disconnected', () => { try { peer.reconnect(); } catch (_) {} });
+  }
+  function showError(t) { const e = $('#err'); e.textContent = t; e.hidden = !t; }
+
+  function onData(m) {
+    if (!m || !m.type) return;
+    if (m.type === 'pong') { S.clock.add(m.c, m.s, performance.now()); return; }
+    if (m.type === 'layout') {
+      S.layout = m.nodes; S.focus = m.focus;
+      const mine = S.layout.find(n => n.id === myId);
+      if (mine) { S.me = mine; engine.applyTrim(); showMe(); }
+      engine.respatialise();
+    } else if (m.type === 'evt') engine.onEvent(m);
+    else if (m.type === 'identify') engine.identify();
+  }
+
+  /* ---------- start ---------- */
+  function join() {
+    if (!code) { showError('This link has no room code. Ask the lead for the link or the QR code.'); return; }
+    if (!engine.init($('#sil'))) { showError('This browser cannot play web audio.'); return; }
+    if (!window.Peer || !window.RTCPeerConnection) { showError('This browser cannot connect phone to phone.'); return; }
+    joined = true;
+    showError('');
+    $('#intro').hidden = true; $('#live').hidden = false;
+    SRP.keepAwake();
+    connect();
+    setInterval(() => {
+      if (S.clock.ready) $('#sync').textContent = '±' + (S.clock.rtt / 2).toFixed(1) + ' ms (rtt ' + S.clock.rtt.toFixed(1) + ')';
+      const st = engine.stats();
+      $('#counts').textContent = st.played + ' / ' + st.late;
+    }, 1000);
+    (function meter() {
+      $('#meter').style.width = (engine.meter() * 100) + '%';
+      requestAnimationFrame(meter);
+    })();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && (!conn || !conn.open)) retry(200); });
+  }
+  $('#join').addEventListener('click', join);
+  if (!code) showError('This link has no room code. Ask the lead for the link or the QR code.');
+})();
+</script>
+</body>
+</html>
